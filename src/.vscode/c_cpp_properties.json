@@ -8,7 +8,9 @@
                 "${env.HOME}/arm-cross-comp-env/arm-raspbian-linux-gnueabi/arm-raspbian-linux-gnueabi/sysroot/usr/include/arm-linux-gnueabihf/",
                 "${env.HOME}/arm-cross-comp-env/arm-raspbian-linux-gnueabi/arm-raspbian-linux-gnueabi/sysroot/usr/lib/gcc/arm-linux-gnueabihf/6/include/"
             ],
-            "defines": ["__ARM_PCS_VFP"],
+            "defines": [
+                "__ARM_PCS_VFP"
+            ],
             "intelliSenseMode": "clang-x64",
             "browse": {
                 "path": [
@@ -16,8 +18,9 @@
                 ],
                 "limitSymbolsToIncludedHeaders": true,
                 "databaseFilename": ""
-            }
+            },
+            "configurationProvider": "ms-vscode.cmake-tools"
         }
     ],
-    "version": 3
+    "version": 4
 }
