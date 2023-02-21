@@ -8,7 +8,7 @@
 // problème (par exemple manque de mémoire) est survenu.
 int prepareMemoire(size_t tailleImageEntree, size_t tailleImageSortie)
 {
-    int *p = malloc(tailleImageEntree*sizeof(int));
+    int *p = (int*)(malloc(5*tailleImageEntree*sizeof(int)));
 
     if (p == NULL)
     {
@@ -22,7 +22,7 @@ int prepareMemoire(size_t tailleImageEntree, size_t tailleImageSortie)
 // (dans la limite de la mémoire disponible, bien sûr)
 void* tempsreel_malloc(size_t taille)
 {
-    return malloc(sizeof(taille));
+    return malloc(taille);
 }
 
 
