@@ -49,5 +49,99 @@ int main(int argc, char* argv[]){
     // pour décoder une image JPEG contenue dans un buffer!
     // N'oubliez pas également que ce décodeur doit lire les fichiers ULV EN BOUCLE
 
+    // On ouvre le fichier ULV
+    int fd = open(argv[1], O_RDONLY);
+    if (fd < 0) {
+        perror("Impossible d'ouvrir le fichier");
+        return 1;
+    }
+
+    // On va chercher les stats du fd pour mettre la taille dans file_size
+    struct stat st;
+    if (fstat(fd, &st) < 0) {
+        perror("Impossible d'obtenir les informations sur le fichier");
+        return 1;
+    }
+    off_t file_size = st.st_size;
+
+    // On map le fichier dans la mémoire vive (RAM)
+    char* file_data = (char*)mmap(NULL, file_size, PROT_READ, MAP_POPULATE, fd, 0);
+    if (file_data == MAP_FAILED) {
+        perror("Impossible de mapper le fichier en mémoire");
+        return 1;
+    }
+
+    // On ferme le descripteur de fichier (fd), mais le fichier reste mappé dans la mémoire vive
+    close(fd);
+
+    // Boucle de décodage du fichier
+    while (1) {
+
+        // On lit le header (4 premiers octets)
+        char header[4];
+        memcpy(header, file_data, 4);
+        if (memcmp(header, "SETR", 4) != 0) {
+            perror("Le fichier n'est pas un fichier ULV valide");
+            return 1;
+        }
+
+        // On lit les infos sur les images
+        uint32_t width, height, channels, fps;
+        memcpy(&width, file_data + 4, 4);
+        memcpy(&height, file_data + 8, 4);
+        memcpy(&channels, file_data + 12, 4);
+        memcpy(&fps, file_data + 16, 4);
+
+        // Boucle de décodage des images
+        while (1) {
+
+            // On va chercher la taille de l'image
+            uint32_t size;
+            memcpy(&size, file_data + 20, 4);
+            // Si la taille est de 0, ca signifie la fin de la vidéo.
+            // On termine la boucle de décodage des images
+            if (size == 0) {
+                break;
+            }
+
+            // On décompresse l'image
+            int width_out, height_out, comps_out;
+            unsigned char* image_data = jpgd::decompress_jpeg_image_from_memory((unsigned char*)(file_data + 24), size, &width_out, &height_out, &comps_out, channels);
+
+            // On initialise la zone mémoire partagée mem1
+	        // On l'ouvre en accès read-write
+            int shm_fd = shm_open("/mem1", O_RDWR, 0777);
+            if (shm_fd < 0) {
+                perror("shm_open");
+                return 1;
+            }
+
+            //comment aller chercher la taille qu'on veut allouer? Est ce que c'est la taille du fichier, de l'image, ou autre?
+            // ici, j'ai mis size parce que ca me semblait logique
+            if (ftruncate(shm_fd, size) < 0) {
+                perror("ftruncate");
+                return 1;
+            }
+
+            char* ulv_shm = (char*)mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+            if (ulv_shm == MAP_FAILED) {
+                perror("mmap");
+                return 1;
+            }
+
+            // On copie l'image décompressée dans la zone mémoire partagée
+            memcpy(ulv_shm, image_data, width_out * height_out * comps_out);
+
+            // On nettoie la mémoire
+            free(image_data);
+
+            // On passe à la prochaine image
+            file_data += 20 + size;
+        }
+
+        // On retourne au début du fichier pour recommencer la boucle
+        file_data = (char*)(file_data - st.st_size);
+    }
+
     return 0;
 }
