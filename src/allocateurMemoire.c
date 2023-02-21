@@ -1,4 +1,5 @@
 #include "allocateurMemoire.h"
+#include <sys/mman.h>
 
 // TODO: Implementez ici votre allocateur memoire utilisant l'interface decrite dans allocateurMemoire.h
 
@@ -8,13 +9,15 @@
 // problème (par exemple manque de mémoire) est survenu.
 int prepareMemoire(size_t tailleImageEntree, size_t tailleImageSortie)
 {
-    int *p = malloc(tailleImageEntree*sizeof(int));
+    int *mem =(int*) (malloc(5*tailleImageEntree*sizeof(int)));
 
-    if (p == NULL)
+    if (mem == NULL)
     {
         printf("Échec de l'allocation\n");
         return -1;
     }
+    mlockall(MCL_CURRENT);
+
     return 0;
 }
 
@@ -22,7 +25,7 @@ int prepareMemoire(size_t tailleImageEntree, size_t tailleImageSortie)
 // (dans la limite de la mémoire disponible, bien sûr)
 void* tempsreel_malloc(size_t taille)
 {
-    return malloc(sizeof(taille));
+    return malloc(taille);
 }
 
 
