@@ -11,6 +11,22 @@
 
 #include "jpgd.h"
 
+
+//pour MAP_POPULATE
+#if __linux__
+#include <linux/version.h>
+#if LINUX_VERSION_CODE > KERNEL_VERSION(2,6,22)
+#define _MAP_POPULATE_AVAILABLE
+#endif
+#endif
+
+#ifdef _MAP_POPULATE_AVAILABLE
+#define MMAP_FLAGS (MAP_PRIVATE | MAP_POPULATE)
+#else
+#define MMAP_FLAGS MAP_PRIVATE
+#endif
+
+
 // Définition de diverses structures pouvant vous être utiles pour la lecture d'un fichier ULV
 #define HEADER_SIZE 4
 const char header[] = "SETR";

@@ -19,5 +19,6 @@ int main(int argc, char* argv[]){
     // mémoire partagée et envoyer le résultat sur une autre zone mémoire partagée.
     // N'oubliez pas de respecter la syntaxe de la ligne de commande présentée dans l'énoncé.
 
+
     return 0;
 }

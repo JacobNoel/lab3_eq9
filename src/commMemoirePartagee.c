@@ -7,17 +7,26 @@ int initMemoirePartageeLecteur(const char* identifiant, struct memPartage *zone)
 {
     struct stat buff;
     int* id;
-    while (!zone | (fstat(zone->fd,&buff) < 0)){
+    
+    //Tant que espace memoire n'existe pas, ou vide
+    while (!zone | (stat(identifiant,&buff) < 0)){
         continue;
     }
+    zone->fd = shm_open(identifiant, O_RDWR, S_IRWXU|S_IRWXG|S_IRWXO);
+    if (zone->fd < 0){
+        printf("shm_open failed\n");
+        return -1;
+    }
+    //Tant que compteur de l'ecrivain est a 0
     while (zone->header->frameWriter==0){
         continue;
     }
-    
-    id = (int*)(mmap(NULL,zone->tailleDonnees, PROT_EXEC|PROT_READ|PROT_WRITE, MAP_SHARED, zone->fd, 0));
-    if (*id < 0){
+
+    //mmap sur le descripteur de fichier
+    id = (int*)(mmap(NULL,buff.st_size, PROT_EXEC|PROT_READ|PROT_WRITE, MAP_SHARED, zone->fd, 0));
+    if (id == NULL){
         printf("reader mmap fail\n");
-        return -1;
+        return 1;
     }
     
     while (zone->header->frameWriter==0)
@@ -41,8 +50,10 @@ int initMemoirePartageeEcrivain(const char* identifiant, struct memPartage *zone
         return -1;
     }
     
+    size_t tailleTotale = sizeof(struct memPartageHeader) + taille;
+
     //Agrandissement espace mémoire avec ftruncate
-    l = ftruncate(fd,taille);
+    l = ftruncate(fd,tailleTotale);
     if (l < 0){
         printf("ftruncate failed\n");
         return -1;
@@ -50,30 +61,33 @@ int initMemoirePartageeEcrivain(const char* identifiant, struct memPartage *zone
 
     //Utilisation de mmap
     int* id;
-    id = (int*)(mmap(zone->data,sizeof(headerInfos), PROT_EXEC|PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0));
-    if (*id < 0){
+    id = (int*)(mmap(NULL,tailleTotale, PROT_EXEC|PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0));
+    if (id==NULL){
         printf("writer mmap fail\n");
         return -1;
     }
+
     //Assignation des différents champs de zone:
     zone->fd = fd;
     zone->header = headerInfos;
-    zone->tailleDonnees = taille;
+    zone->tailleDonnees = tailleTotale;
     zone->copieCompteur = headerInfos->frameReader;
-    
+    zone->data = (unsigned char*)(id + sizeof(struct memPartageHeader));
+
     //Creation du mutex 
     m = pthread_mutex_init(&headerInfos->mutex,NULL);
     if (m < 0){
         printf("mutex creation failed\n");
     }
+
+    //Acquisition du mutex par l'ecrivain
     m = pthread_mutex_lock(&(zone->header->mutex));
     if (m < 0){
         printf("fail writer mutex lock\n");
         return -1;
     }
 
-
-    //Incrémenter framewriter
+    //Incrémentation compteur ecrivain
     zone->header->frameWriter++;
 
     return 0;

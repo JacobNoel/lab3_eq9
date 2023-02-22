@@ -56,6 +56,7 @@
 // Nécessaire pour pouvoir utiliser sched_setattr et le mode DEADLINE
 #include <sched.h>
 #include "schedsupp.h"
+#include <sys/time.h>
 
 #include "allocateurMemoire.h"
 #include "commMemoirePartagee.h"
