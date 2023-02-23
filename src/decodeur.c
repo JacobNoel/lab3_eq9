@@ -8,6 +8,7 @@
 #include "allocateurMemoire.h"
 #include "commMemoirePartagee.h"
 #include "utils.h"
+#include <sys/mman.h>
 
 #include "jpgd.h"
 
@@ -29,7 +30,7 @@
 
 // Définition de diverses structures pouvant vous être utiles pour la lecture d'un fichier ULV
 #define HEADER_SIZE 4
-const char header[] = "SETR";
+const char ulv_header[] = "SETR";
 
 struct videoInfos{
         uint32_t largeur;
@@ -57,6 +58,7 @@ struct videoInfos{
 
 
 int main(int argc, char* argv[]){
+    printf("%d", argc);
     // On desactive le buffering pour les printf(), pour qu'il soit possible de les voir depuis votre ordinateur
 	setbuf(stdout, NULL);
     
@@ -81,7 +83,7 @@ int main(int argc, char* argv[]){
     off_t file_size = st.st_size;
 
     // On map le fichier dans la mémoire vive (RAM)
-    char* file_data = (char*)mmap(NULL, file_size, PROT_READ, MAP_POPULATE, fd, 0);
+    unsigned char* file_data = (unsigned char*)mmap(NULL, file_size, PROT_READ, MAP_POPULATE, fd, 0);
     if (file_data == MAP_FAILED) {
         perror("Impossible de mapper le fichier en mémoire");
         return 1;
@@ -90,23 +92,61 @@ int main(int argc, char* argv[]){
     // On ferme le descripteur de fichier (fd), mais le fichier reste mappé dans la mémoire vive
     close(fd);
 
+
+    // On lit le header (4 premiers octets)
+    char header[HEADER_SIZE];
+    memcpy(header, file_data, HEADER_SIZE);
+    if (memcmp(header, ulv_header, HEADER_SIZE) != 0) {
+        perror("Le fichier n'est pas un fichier ULV valide");
+        return 1;
+    }
+
+    // On lit les infos sur les images
+    uint32_t width, height, channels, fps;
+    memcpy(&width, file_data + 4, 4);
+    memcpy(&height, file_data + 8, 4);
+    memcpy(&channels, file_data + 12, 4);
+    memcpy(&fps, file_data + 16, 4);
+    
+    // Alloue l'espace mémoire partagé
+    size_t taille = 1024*1024; // 1 Mo
+    ftruncate(fd, taille);
+
+    // Mappe l'espace mémoire partagé dans l'espace d'adressage du processus
+    void* ptr = mmap(NULL, taille, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+
+    // Instancie la structure memPartage
+    struct memPartageHeader* memHeader = (struct memPartageHeader*) ptr;
+    struct memPartage* mem = (struct memPartage*) malloc(sizeof(struct memPartage));
+    mem->fd = fd;
+    mem->header = memHeader;
+    mem->tailleDonnees = taille - sizeof(struct memPartageHeader);
+    mem->data = file_data;
+    mem->copieCompteur = 0;
+
+    // Initialise les valeurs de la structure memPartageHeader
+    pthread_mutexattr_t mutex_attr;
+    pthread_mutexattr_init(&mutex_attr);
+    pthread_mutexattr_setpshared(&mutex_attr, PTHREAD_PROCESS_SHARED);
+    pthread_mutex_init(&(memHeader->mutex), &mutex_attr);
+    memHeader->frameWriter = 0;
+    memHeader->frameReader = 0;
+    memHeader->largeur = width;
+    memHeader->hauteur = height;
+    memHeader->canaux = channels;
+    memHeader->fps = fps;
+
+    
+    // On initialise la zone mémoire partagée mem1
+    // On l'ouvre en accès read-write
+    int shm = initMemoirePartageeEcrivain("/mem1", mem, taille, memHeader);
+    if (shm < 0) {
+        perror("initMemPartageeEcrivain");
+        return 1;
+    }
+
     // Boucle de décodage du fichier
     while (1) {
-
-        // On lit le header (4 premiers octets)
-        char header[4];
-        memcpy(header, file_data, 4);
-        if (memcmp(header, "SETR", 4) != 0) {
-            perror("Le fichier n'est pas un fichier ULV valide");
-            return 1;
-        }
-
-        // On lit les infos sur les images
-        uint32_t width, height, channels, fps;
-        memcpy(&width, file_data + 4, 4);
-        memcpy(&height, file_data + 8, 4);
-        memcpy(&channels, file_data + 12, 4);
-        memcpy(&fps, file_data + 16, 4);
 
         // Boucle de décodage des images
         while (1) {
@@ -124,39 +164,26 @@ int main(int argc, char* argv[]){
             int width_out, height_out, comps_out;
             unsigned char* image_data = jpgd::decompress_jpeg_image_from_memory((unsigned char*)(file_data + 24), size, &width_out, &height_out, &comps_out, channels);
 
-            // On initialise la zone mémoire partagée mem1
-	        // On l'ouvre en accès read-write
-            int shm_fd = shm_open("/mem1", O_RDWR, 0777);
-            if (shm_fd < 0) {
-                perror("shm_open");
-                return 1;
-            }
-
-            //comment aller chercher la taille qu'on veut allouer? Est ce que c'est la taille du fichier, de l'image, ou autre?
-            // ici, j'ai mis size parce que ca me semblait logique
-            if (ftruncate(shm_fd, size) < 0) {
-                perror("ftruncate");
-                return 1;
-            }
-
-            char* ulv_shm = (char*)mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
-            if (ulv_shm == MAP_FAILED) {
-                perror("mmap");
-                return 1;
-            }
-
             // On copie l'image décompressée dans la zone mémoire partagée
-            memcpy(ulv_shm, image_data, width_out * height_out * comps_out);
+            memcpy(mem, image_data, width_out * height_out * comps_out);
+
+            mem->copieCompteur = mem->header->frameReader;
 
             // On nettoie la mémoire
             free(image_data);
 
             // On passe à la prochaine image
             file_data += 20 + size;
+
+            pthread_mutex_unlock(&(mem->header->mutex));
+
+            attenteLecteurAsync(mem);
+
+            mem->header->frameWriter++;
         }
 
         // On retourne au début du fichier pour recommencer la boucle
-        file_data = (char*)(file_data - st.st_size);
+        file_data = (unsigned char*)(file_data - st.st_size);
     }
 
     return 0;

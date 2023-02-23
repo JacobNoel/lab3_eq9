@@ -181,44 +181,33 @@ void ecrireImage(const int position, const int total,
 }
 
 
-#define SHARED_MEM_SIZE 1024*1024
-
 int main(int argc, char* argv[])
 {
+	printf("%d", argc);
     // TODO
     // ÉCRIVEZ ICI votre code d'analyse des arguments du programme et d'initialisation des zones mémoire partagées
     int nbrActifs;      // Après votre initialisation, cette variable DOIT contenir le nombre de flux vidéos actifs (de 1 à 4 inclusivement).
     
-	// TODO l'énoncé plus haut met "zones mémoire partagées" au pluriel, mais on en a juste une ici. Il faudrait vérifier leur utilité.
 	// On convertit la portion initiale du string à un int
 	nbrActifs = atoi(argv[1]);
 
-	// On initialise la zone mémoire partagée mem1
-	// On la crée si elle n'existe pas, et on l'ouvre en accès read-write
-    int shm_fd = shm_open("/mem1", O_CREAT | O_RDWR, 0777);
-    if (shm_fd < 0) {
-        perror("shm_open");
-        return 1;
-    }
-
-    if (ftruncate(shm_fd, nbrActifs * SHARED_MEM_SIZE) < 0) {
-        perror("ftruncate");
-        return 1;
-    }
-
-    char* ulv_shm = (char *)mmap(NULL, nbrActifs * SHARED_MEM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
-    if (ulv_shm == MAP_FAILED) {
-        perror("mmap");
-        return 1;
-    }
-
-    // On écrit le nombre de flux actifs dans la mémoire partagée
-    ulv_shm[0] = (char) nbrActifs;
-
-    if (nbrActifs < 1 || nbrActifs > 4) {
+	if (nbrActifs < 1 || nbrActifs > 4) {
         perror("Nombre de flux actifs invalide. Entrez une valeur entre 1 et 4");
         return 1;
     }
+	
+	memPartage* mem;
+	int shm = initMemoirePartageeLecteur("/mem1", mem);
+	if (shm < 0) {
+        perror("initMemPartageeLecteur");
+        return 1;
+    }
+
+	/*
+    // On écrit le nombre de flux actifs dans la mémoire partagée
+    ulv_shm[0] = (char) nbrActifs;
+    */
+
 
     // On desactive le buffering pour les printf(), pour qu'il soit possible de les voir depuis votre ordinateur
 	setbuf(stdout, NULL);
@@ -285,6 +274,8 @@ int main(int argc, char* argv[])
 		return -1;
     }
 
+	attenteEcrivain(mem);
+
 	double tempsDerniereImage[4] = {get_time(), get_time(), get_time(), get_time()};
     while(1){
 		// Boucle principale du programme
@@ -300,52 +291,64 @@ int main(int argc, char* argv[])
 		// N'oubliez pas que toutes les images fournies à ecrireImage() DOIVENT être en
 		// 427x240 (voir le commentaire en haut du document).
 	
-		// Exemple d'appel à ecrireImage (n'oubliez pas de remplacer les arguments commençant par A_REMPLIR!)
-
 		// Boucle sur chaque flux vidéo
 		for(int i = 0; i < nbrActifs; i++) {
-			// TODO Vérifier si une nouvelle image est disponible pour le flux i
-			if(nouvelleImageDisponible[i]) {
-				// On calcule le temps écoulé depuis la dernière image qui a été affichée pour le flux i
-				double tempsEcoule = difftime(get_time(), tempsDerniereImage[i]);
-				// TODO aller chercher le fps pour le flux i
-				double tempsEntreImages = 1.0 / fps[i];
+			mem->header->frameReader++;
+			// On calcule le temps écoulé depuis la dernière image qui a été affichée pour le flux i
+			double tempsEcoule = difftime(get_time(), tempsDerniereImage[i]);
+			// TODO aller chercher le fps pour le flux i
+			double tempsEntreImages = 1.0 / mem->header->fps;
 
-				// On vérifie si le temps écoulé est supérieur ou égal au temps souhaité entre les deux images
-				if(tempsEcoule >= tempsEntreImages) {
-					// TODO On récupère l'image à partir de la mémoire partagée, mais il faudrais copier l'image du flux i
-					// TODO On devrait aller chercher la largeur de la tame du flux i, ainsi que sa hauteur et son nombre de canaux
-					char image_data[A_REMPLIR_LARGEUR_DE_LA_TRAME * A_REMPLIR_HAUTEUR_DE_LA_TRAME * A_REMPLIR_NOMBRECANAUX_DANS_LA_TRAME];
-					memcpy(image_data, ulv_shm, A_REMPLIR_LARGEUR_DE_LA_TRAME * A_REMPLIR_HAUTEUR_DE_LA_TRAME * A_REMPLIR_NOMBRECANAUX_DANS_LA_TRAME);
+			// On vérifie si le temps écoulé est supérieur ou égal au temps souhaité entre les deux images
+			if(tempsEcoule >= tempsEntreImages) {
 
-					// On définit le temps de la dernière image qui est affichée pour le flux i
-					tempsDerniereImage[i] = get_time();
+				unsigned char image_data[mem->header->largeur * mem->header->hauteur * mem->header->canaux];
+				memcpy(image_data, mem, mem->header->largeur * mem->header->hauteur * mem->header->canaux);
 
-					// TODO On doit redimensionner l'image avant de l'envoyer à ecrireImage() avec redimensionneur.c
+				// On définit le temps de la dernière image qui est affichée pour le flux i
+				tempsDerniereImage[i] = get_time();
 
-					// On démarre un nouveau thread pour appeler ecrireImage() avec les bons arguments
-					pthread_t threadEcrireImage;
-					pthread_create(&threadEcrireImage, NULL, 
-						ecrireImage(
-							i, 
-							nbrActifs, 
-							fbfd, 
-							fbp, 
-							vinfo.xres, 
-							vinfo.yres, 
-							&vinfo, 
-							finfo.line_length,
-							image_data,
-							A_REMPLIR_LARGEUR_DE_LA_TRAME,
-							A_REMPLIR_HAUTEUR_DE_LA_TRAME,
-							A_REMPLIR_NOMBRECANAUX_DANS_LA_TRAME
-						),
-						(void*) &image_data);
-				}
+				// TODO On doit redimensionner l'image avant de l'envoyer à ecrireImage() avec redimensionneur.c
+
+				/*
+				// On démarre un nouveau thread pour appeler ecrireImage() avec les bons arguments
+				pthread_t threadEcrireImage;
+				pthread_create(&threadEcrireImage, NULL, 
+					ecrireImage(
+						i, 
+						nbrActifs, 
+						fbfd, 
+						fbp, 
+						vinfo.xres, 
+						vinfo.yres, 
+						&vinfo, 
+						finfo.line_length,
+						image_data,
+						A_REMPLIR_LARGEUR_DE_LA_TRAME,
+						A_REMPLIR_HAUTEUR_DE_LA_TRAME,
+						A_REMPLIR_NOMBRECANAUX_DANS_LA_TRAME
+					),
+					(void*) &image_data);*/
+				ecrireImage(
+					i, 
+					nbrActifs, 
+					fbfd, 
+					fbp, 
+					vinfo.xres, 
+					vinfo.yres, 
+					&vinfo, 
+					finfo.line_length,
+					image_data,
+					mem->header->largeur,
+					mem->header->hauteur,
+					mem->header->canaux);
+
+				mem->copieCompteur = mem->header->frameWriter;
+
+				pthread_mutex_unlock(&(mem->header->mutex));
 			}
+			attenteEcrivain(mem);
 		}
-		// On attend 1000 microsecondes (1ms)
-		usleep(1000);
     }
 	
     munmap(fbp, screensize);

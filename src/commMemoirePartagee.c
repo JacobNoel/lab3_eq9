@@ -122,7 +122,7 @@ int attenteLecteurAsync(struct memPartage *zone)
     }
     i = pthread_mutex_trylock(&(zone->header->mutex));
     if (i < 0){
-        printf("fail writer mutex lock\n");
+        printf("fail writer mutex trylock\n");
         return -1;
     }
     return 0;
