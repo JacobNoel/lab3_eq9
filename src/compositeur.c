@@ -183,30 +183,27 @@ void ecrireImage(const int position, const int total,
 
 int main(int argc, char* argv[])
 {
-	printf("%d", argc);
     // TODO
     // ÉCRIVEZ ICI votre code d'analyse des arguments du programme et d'initialisation des zones mémoire partagées
     int nbrActifs;      // Après votre initialisation, cette variable DOIT contenir le nombre de flux vidéos actifs (de 1 à 4 inclusivement).
     
-	// On convertit la portion initiale du string à un int
-	nbrActifs = atoi(argv[1]);
+	// On convertit la portiond initiale du string à un int
+	nbrActifs = argc;
 
 	if (nbrActifs < 1 || nbrActifs > 4) {
         perror("Nombre de flux actifs invalide. Entrez une valeur entre 1 et 4");
         return 1;
     }
 	
-	memPartage* mem;
-	int shm = initMemoirePartageeLecteur("/mem1", mem);
-	if (shm < 0) {
-        perror("initMemPartageeLecteur");
-        return 1;
-    }
+	memPartage* mems[nbrActifs];
+	for (int i = 0; i<nbrActifs; i++) {
+		int shm = initMemoirePartageeLecteur(argv[i], mems[i]);
 
-	/*
-    // On écrit le nombre de flux actifs dans la mémoire partagée
-    ulv_shm[0] = (char) nbrActifs;
-    */
+		if (shm < 0) {
+			perror("initMemPartageeLecteur");
+			return 1;
+		}
+	}
 
 
     // On desactive le buffering pour les printf(), pour qu'il soit possible de les voir depuis votre ordinateur
@@ -274,8 +271,6 @@ int main(int argc, char* argv[])
 		return -1;
     }
 
-	attenteEcrivain(mem);
-
 	double tempsDerniereImage[4] = {get_time(), get_time(), get_time(), get_time()};
     while(1){
 		// Boucle principale du programme
@@ -293,42 +288,24 @@ int main(int argc, char* argv[])
 	
 		// Boucle sur chaque flux vidéo
 		for(int i = 0; i < nbrActifs; i++) {
-			mem->header->frameReader++;
+			attenteEcrivain(mems[i]);
+			mems[i]->header->frameReader++;
 			// On calcule le temps écoulé depuis la dernière image qui a été affichée pour le flux i
 			double tempsEcoule = difftime(get_time(), tempsDerniereImage[i]);
 			// TODO aller chercher le fps pour le flux i
-			double tempsEntreImages = 1.0 / mem->header->fps;
+			double tempsEntreImages = 1.0 / mems[i]->header->fps;
 
 			// On vérifie si le temps écoulé est supérieur ou égal au temps souhaité entre les deux images
 			if(tempsEcoule >= tempsEntreImages) {
 
-				unsigned char image_data[mem->header->largeur * mem->header->hauteur * mem->header->canaux];
-				memcpy(image_data, mem, mem->header->largeur * mem->header->hauteur * mem->header->canaux);
+				unsigned char image_data[mems[i]->header->largeur * mems[i]->header->hauteur * mems[i]->header->canaux];
+				memcpy(image_data, mems[i], mems[i]->header->largeur * mems[i]->header->hauteur * mems[i]->header->canaux);
 
 				// On définit le temps de la dernière image qui est affichée pour le flux i
 				tempsDerniereImage[i] = get_time();
 
 				// TODO On doit redimensionner l'image avant de l'envoyer à ecrireImage() avec redimensionneur.c
 
-				/*
-				// On démarre un nouveau thread pour appeler ecrireImage() avec les bons arguments
-				pthread_t threadEcrireImage;
-				pthread_create(&threadEcrireImage, NULL, 
-					ecrireImage(
-						i, 
-						nbrActifs, 
-						fbfd, 
-						fbp, 
-						vinfo.xres, 
-						vinfo.yres, 
-						&vinfo, 
-						finfo.line_length,
-						image_data,
-						A_REMPLIR_LARGEUR_DE_LA_TRAME,
-						A_REMPLIR_HAUTEUR_DE_LA_TRAME,
-						A_REMPLIR_NOMBRECANAUX_DANS_LA_TRAME
-					),
-					(void*) &image_data);*/
 				ecrireImage(
 					i, 
 					nbrActifs, 
@@ -339,15 +316,16 @@ int main(int argc, char* argv[])
 					&vinfo, 
 					finfo.line_length,
 					image_data,
-					mem->header->largeur,
-					mem->header->hauteur,
-					mem->header->canaux);
+					mems[i]->header->largeur,
+					mems[i]->header->hauteur,
+					mems[i]->header->canaux
+				);
 
-				mem->copieCompteur = mem->header->frameWriter;
+				mems[i]->copieCompteur = mems[i]->header->frameWriter;
 
-				pthread_mutex_unlock(&(mem->header->mutex));
+				pthread_mutex_unlock(&(mems[i]->header->mutex));
 			}
-			attenteEcrivain(mem);
+			attenteEcrivain(mems[i]);
 		}
     }
 	

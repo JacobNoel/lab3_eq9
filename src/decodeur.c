@@ -58,7 +58,6 @@ struct videoInfos{
 
 
 int main(int argc, char* argv[]){
-    printf("%d", argc);
     // On desactive le buffering pour les printf(), pour qu'il soit possible de les voir depuis votre ordinateur
 	setbuf(stdout, NULL);
     
@@ -83,7 +82,7 @@ int main(int argc, char* argv[]){
     off_t file_size = st.st_size;
 
     // On map le fichier dans la mémoire vive (RAM)
-    unsigned char* file_data = (unsigned char*)mmap(NULL, file_size, PROT_READ, MAP_POPULATE, fd, 0);
+    unsigned char* file_data = (unsigned char*)mmap(NULL, file_size, PROT_EXEC|PROT_READ|PROT_WRITE, MAP_POPULATE, fd, 0);
     if (file_data == MAP_FAILED) {
         perror("Impossible de mapper le fichier en mémoire");
         return 1;
@@ -137,9 +136,9 @@ int main(int argc, char* argv[]){
     memHeader->fps = fps;
 
     
-    // On initialise la zone mémoire partagée mem1
+    // On initialise la zone mémoire partagée envoyée en argument
     // On l'ouvre en accès read-write
-    int shm = initMemoirePartageeEcrivain("/mem1", mem, taille, memHeader);
+    int shm = initMemoirePartageeEcrivain(argv[2], mem, taille, memHeader);
     if (shm < 0) {
         perror("initMemPartageeEcrivain");
         return 1;
